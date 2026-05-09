@@ -1,36 +1,36 @@
 """FunHouse weather station: BME680 + PMSA003 + nice UI."""
 
 import os
+import sys
 import time
 import json
 
 import board
 import digitalio
+import supervisor
 import wifi
 
 from adafruit_funhouse import FunHouse
 
+from components import config
 from components.sensors import Sensors
 from components.state import History
 from components.ui import UI, TrendScreen
 
 
-SENSOR_INTERVAL = 1.0
-HISTORY_INTERVAL = 30.0
-MQTT_INTERVAL = 60.0
+# Tunables that don't usually need config exposure
 DEBOUNCE = 0.06
 LOOP_SLEEP = 0.015
 
-DIM_AFTER = 30.0
-SLEEP_AFTER = 180.0
-
-TEMP_OFFSET_C = -2.0  # external BME680 calibration vs Aranet
-
-# External PIR support. PIR's OUT wire goes here. Use A0 (safe, not a strap pin).
-# Set to None to disable; built-in PIR is always read regardless.
-EXTERNAL_PIR_PIN = "A0"
-
-MQTT_TOPIC = "funhouse/state"
+# Pull everything else from components/config.py
+SENSOR_INTERVAL = config.SENSOR_INTERVAL_SEC
+HISTORY_INTERVAL = config.HISTORY_INTERVAL_SEC
+MQTT_INTERVAL = config.MQTT_INTERVAL_SEC
+DIM_AFTER = config.DIM_AFTER_SEC
+SLEEP_AFTER = config.SLEEP_AFTER_SEC
+TEMP_OFFSET_C = config.TEMP_OFFSET_C
+EXTERNAL_PIR_PIN = config.EXTERNAL_PIR_PIN
+MQTT_TOPIC = config.MQTT_TOPIC
 
 
 def _env(key, default=None):
@@ -49,7 +49,7 @@ if not HAS_MQTT_CONFIG:
 
 funhouse = FunHouse(default_bg=0x000000, scale=1)
 sensors = Sensors(funhouse.peripherals, temp_offset_c=TEMP_OFFSET_C)
-history = History(capacity=120)
+history = History(capacity=config.HISTORY_CAPACITY)
 ui = UI(funhouse.display)
 
 
@@ -73,7 +73,7 @@ class Net:
     @property
     def wifi_ok(self):
         try:
-            return wifi.radio.ipv4_address is not None
+            return bool(wifi.radio.connected)
         except Exception:
             return False
 
@@ -173,6 +173,63 @@ def step_toward(current, target, step):
     return current + step if target > current else current - step
 
 
+class _SerialB64Stream:
+    """File-like sink that base64-encodes whatever's written to it and prints
+    one line at a time. Lets us capture a BMP without buffering it in RAM."""
+
+    LINE_BYTES = 60  # 60 raw bytes -> 80 base64 chars per line
+
+    def __init__(self):
+        self._buf = bytearray()
+
+    def write(self, data):
+        import binascii
+
+        if self._buf:
+            data = bytes(self._buf) + bytes(data)
+            self._buf = bytearray()
+        n = self.LINE_BYTES
+        i = 0
+        end = len(data)
+        while end - i >= n:
+            print(binascii.b2a_base64(data[i:i + n]).rstrip(b"\n").decode())
+            i += n
+        if i < end:
+            self._buf.extend(data[i:])
+        return end
+
+    def close(self):
+        import binascii
+
+        if self._buf:
+            print(binascii.b2a_base64(bytes(self._buf)).rstrip(b"\n").decode())
+            self._buf = bytearray()
+
+
+def take_screenshot():
+    print("\n===SCREENSHOT-START===")
+    try:
+        from adafruit_bitmapsaver import save_pixels
+
+        sink = _SerialB64Stream()
+        save_pixels(sink, funhouse.display)
+        sink.close()
+    except Exception as e:
+        print("screenshot error:", e)
+    print("===SCREENSHOT-END===")
+
+
+def maybe_handle_serial():
+    if not supervisor.runtime.serial_bytes_available:
+        return
+    try:
+        ch = sys.stdin.read(1)
+    except Exception:
+        return
+    if ch == "s":
+        take_screenshot()
+
+
 def handle_buttons(reading):
     """Returns True if a button was pressed."""
     if funhouse.peripherals.button_up:
@@ -200,6 +257,12 @@ last_input = time.monotonic()
 brightness = 0.6
 manual_until = 0.0  # while now < this, the slider value drives brightness
 
+# PIRs latch HIGH for several seconds per detection, so polling level was
+# resetting last_input continuously. Track previous level and only count
+# rising edges (LOW -> HIGH) as activity.
+prev_internal_pir = False
+prev_external_pir = False
+
 reading = sensors.read()
 history.add(reading)
 ui.update(reading, history, net.wifi_ok, net.mqtt_ok, history_interval=HISTORY_INTERVAL)
@@ -209,14 +272,22 @@ print("Weather station running.")
 while True:
     now = time.monotonic()
 
+    maybe_handle_serial()
+
     if handle_buttons(reading):
         last_input = now
         time.sleep(DEBOUNCE)
 
-    if funhouse.peripherals.pir_sensor:
+    internal_pir = bool(funhouse.peripherals.pir_sensor)
+    if internal_pir and not prev_internal_pir:
         last_input = now
-    if external_pir is not None and external_pir.value:
-        last_input = now
+    prev_internal_pir = internal_pir
+
+    if external_pir is not None:
+        ext = bool(external_pir.value)
+        if ext and not prev_external_pir:
+            last_input = now
+        prev_external_pir = ext
 
     slider = funhouse.peripherals.slider
     if slider is not None:
@@ -230,6 +301,7 @@ while True:
 
     brightness = step_toward(brightness, target, 0.04)
     funhouse.display.brightness = brightness
+    screen_on = brightness > 0.01
 
     if now - last_sensor >= SENSOR_INTERVAL:
         last_sensor = now
@@ -237,9 +309,12 @@ while True:
         if now - last_history >= HISTORY_INTERVAL:
             history.add(reading)
             last_history = now
-        ui.update(
-            reading, history, net.wifi_ok, net.mqtt_ok, history_interval=HISTORY_INTERVAL
-        )
+        # Only redraw while the screen is actually visible
+        if screen_on:
+            ui.update(
+                reading, history, net.wifi_ok, net.mqtt_ok,
+                history_interval=HISTORY_INTERVAL,
+            )
 
     paint_dotstars(reading, now - last_input)
 

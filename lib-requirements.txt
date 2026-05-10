@@ -1,0 +1,40 @@
+# CircuitPython libraries required by funhouse-air.
+# One entry per line. Lines starting with # are comments.
+# Names match files/directories under the bundle's lib/ directory.
+#
+# To install: ./install-libs.sh
+# Bundle: https://circuitpython.org/libraries (CP 10.x mpy bundle)
+
+# --- FunHouse core ---
+adafruit_funhouse
+adafruit_portalbase
+
+# --- Display ---
+adafruit_display_text
+adafruit_display_shapes
+adafruit_bitmap_font
+adafruit_imageload
+adafruit_bitmapsaver.mpy
+
+# --- Networking & MQTT ---
+adafruit_io
+adafruit_minimqtt
+adafruit_requests.mpy
+adafruit_fakerequests.mpy
+adafruit_connection_manager.mpy
+adafruit_miniqr.mpy
+
+# --- External sensors (BME680 + PMSA003) ---
+adafruit_bme680.mpy
+adafruit_pm25
+
+# --- Built-in sensors (DPS310 + AHT20) ---
+adafruit_dps310
+adafruit_ahtx0.mpy
+
+# --- Generic ---
+adafruit_register
+adafruit_ticks.mpy
+adafruit_dotstar.mpy
+neopixel.mpy
+simpleio.mpy

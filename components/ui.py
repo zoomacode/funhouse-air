@@ -251,15 +251,9 @@ class NowScreen(Screen):
         self.aqi_num = label.Label(
             big_font, text="AQI —", color=0x000000, scale=config.SCALE_AQI_BAND
         )
-        self.aqi_num.anchor_point = (0.0, 0.5)
-        self.aqi_num.anchored_position = (CONTENT_X + 8, self._aqi_y + aqi_h // 2)
+        self.aqi_num.anchor_point = (0.5, 0.5)
+        self.aqi_num.anchored_position = (CONTENT_CX, self._aqi_y + aqi_h // 2)
         self.group.append(self.aqi_num)
-        self.aqi_cat_text = label.Label(
-            big_font, text="", color=0x000000, scale=config.SCALE_AQI_BAND
-        )
-        self.aqi_cat_text.anchor_point = (1.0, 0.5)
-        self.aqi_cat_text.anchored_position = (W - 8, self._aqi_y + aqi_h // 2)
-        self.group.append(self.aqi_cat_text)
 
     def _swap_arrow(self, slot, xy, direction, color=None):
         try:
@@ -306,14 +300,10 @@ class NowScreen(Screen):
 
         self._aqi_band.fill = r.aqi_color if r.aqi is not None else MUTED
         if r.aqi is not None:
-            text_color = 0x000000 if _is_light(r.aqi_color) else 0xFFFFFF
             self.aqi_num.text = "AQI {}".format(r.aqi)
-            self.aqi_cat_text.text = r.aqi_label.upper()
-            self.aqi_num.color = text_color
-            self.aqi_cat_text.color = text_color
+            self.aqi_num.color = 0x000000 if _is_light(r.aqi_color) else 0xFFFFFF
         else:
             self.aqi_num.text = "AQI —"
-            self.aqi_cat_text.text = ""
             self.aqi_num.color = 0xFFFFFF
 
 

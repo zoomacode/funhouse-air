@@ -30,6 +30,7 @@ DIM_AFTER = config.DIM_AFTER_SEC
 SLEEP_AFTER = config.SLEEP_AFTER_SEC
 TEMP_OFFSET_C = config.TEMP_OFFSET_C
 EXTERNAL_PIR_PIN = config.EXTERNAL_PIR_PIN
+PIR_SUSTAIN_SEC = config.PIR_SUSTAIN_SEC
 MQTT_TOPIC = config.MQTT_TOPIC
 
 
@@ -258,10 +259,13 @@ brightness = 0.6
 manual_until = 0.0  # while now < this, the slider value drives brightness
 
 # PIRs latch HIGH for several seconds per detection, so polling level was
-# resetting last_input continuously. Track previous level and only count
-# rising edges (LOW -> HIGH) as activity.
-prev_internal_pir = False
-prev_external_pir = False
+# resetting last_input continuously. Track when each PIR went HIGH and
+# only count it as activity once it has held HIGH for PIR_SUSTAIN_SEC —
+# brief blips are ignored, which knocks the effective sensitivity down.
+internal_pir_high_since = None
+internal_pir_counted = False
+external_pir_high_since = None
+external_pir_counted = False
 
 reading = sensors.read()
 history.add(reading)
@@ -279,15 +283,27 @@ while True:
         time.sleep(DEBOUNCE)
 
     internal_pir = bool(funhouse.peripherals.pir_sensor)
-    if internal_pir and not prev_internal_pir:
-        last_input = now
-    prev_internal_pir = internal_pir
+    if internal_pir:
+        if internal_pir_high_since is None:
+            internal_pir_high_since = now
+        elif not internal_pir_counted and now - internal_pir_high_since >= PIR_SUSTAIN_SEC:
+            last_input = now
+            internal_pir_counted = True
+    else:
+        internal_pir_high_since = None
+        internal_pir_counted = False
 
     if external_pir is not None:
         ext = bool(external_pir.value)
-        if ext and not prev_external_pir:
-            last_input = now
-        prev_external_pir = ext
+        if ext:
+            if external_pir_high_since is None:
+                external_pir_high_since = now
+            elif not external_pir_counted and now - external_pir_high_since >= PIR_SUSTAIN_SEC:
+                last_input = now
+                external_pir_counted = True
+        else:
+            external_pir_high_since = None
+            external_pir_counted = False
 
     slider = funhouse.peripherals.slider
     if slider is not None:

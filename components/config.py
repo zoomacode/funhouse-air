@@ -45,6 +45,11 @@ HISTORY_CAPACITY = 240  # 30 s * 240 = 7200 s = 2 h
 # DO NOT use D0 (boot strap pin) — the device won't boot.
 EXTERNAL_PIR_PIN = "A0"
 
+# Motion must hold the PIR HIGH for at least this many seconds before
+# it counts as activity. Filters brief blips (cat walking past, etc.).
+# Bump it up to make the PIR less sensitive; set to 0 to count any rising edge.
+PIR_SUSTAIN_SEC = 1.5
+
 
 # ============================================================
 # MQTT
